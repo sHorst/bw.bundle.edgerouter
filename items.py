@@ -585,16 +585,29 @@ if node.metadata.get('routes', {}):
         ]
         pre += ' ' * 4
 
-        config_boot_content += [
-            '{pre}description "{description}"'.format(pre=pre, description=route_config.get('description', '')),
-            '{pre}log disable'.format(pre=pre),
-            '{pre}outbound-interface {interface}'.format(pre=pre, interface=route_config.get('out', '')),
-            '{pre}protocol all'.format(pre=pre),
-            '{pre}source {{'.format(pre=pre),
-            '{pre}    address {source}'.format(pre=pre, source=route_config.get('source', '')),
-            '{pre}}}'.format(pre=pre),
-            '{pre}type masquerade'.format(pre=pre),
-        ]
+        if route_config.get('destination', False):
+            config_boot_content += [
+                '{pre}description "{description}"'.format(pre=pre, description=route_config.get('description', '')),
+                '{pre}destination {{'.format(pre=pre),
+                '{pre}    address {destination_addr}'.format(pre=pre, destination_addr=route_config.get('destination', ['', 0])[0]),
+                '{pre}    port {destination_port}'.format(pre=pre, destination_port=route_config.get('destination', ['', 0])[1]),
+                '{pre}}}'.format(pre=pre),
+                '{pre}log disable'.format(pre=pre),
+                '{pre}outbound-interface {interface}'.format(pre=pre, interface=route_config.get('out', '')),
+                '{pre}protocol {proto}'.format(pre=pre, proto=route_config.get('protocol', 'all')),
+                '{pre}type masquerade'.format(pre=pre),
+            ]
+        else:
+            config_boot_content += [
+                '{pre}description "{description}"'.format(pre=pre, description=route_config.get('description', '')),
+                '{pre}log disable'.format(pre=pre),
+                '{pre}outbound-interface {interface}'.format(pre=pre, interface=route_config.get('out', '')),
+                '{pre}protocol {proto}'.format(pre=pre, proto=route_config.get('protocol', 'all')),
+                '{pre}source {{'.format(pre=pre),
+                '{pre}    address {source}'.format(pre=pre, source=route_config.get('source', '')),
+                '{pre}}}'.format(pre=pre),
+                '{pre}type masquerade'.format(pre=pre),
+            ]
 
         pre = pre[:-4]
         config_boot_content += [
@@ -692,7 +705,7 @@ config_boot_content += [
 ]
 pre += ' ' * 4
 
-for username, user_attrs in node.metadata['users'].items():
+for username, user_attrs in sorted(node.metadata.get('users', {}).items(), key=lambda x: x[0]):
     if not user_attrs.get('delete', False) and user_attrs.get('sudo', False):
         config_boot_content += [
             '{pre}user {username} {{'.format(pre=pre, username=username),
@@ -858,7 +871,7 @@ config_boot_content += [
 
 files['/config/config.boot'] = {
     'content': '\n'.join(config_boot_content) + '\n',
-    'mode': '0664',
+    'mode': '0660',
     'owner': 'root',
     'group': 'vyattacfg',
     'needs': [
