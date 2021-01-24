@@ -8,6 +8,7 @@ parameter = {
     'keepalive': {'type': 'string', 'default': None},
     'tun-mtu': {'type': 'int', 'default': None},
     'fragment': {'type': 'int', 'default': None},
+    'mssfix': {'type': 'int', 'default': None},
     'client-to-client': {'type': 'bool', 'default': False},
 
     'persist-key': {'type': 'bool', 'default': False},
@@ -672,6 +673,16 @@ config_boot_content += [
 pre = pre[:-4]
 config_boot_content += [
     '{pre}}}'.format(pre=pre),
+    '{pre}ubnt-discover-server {{'.format(pre=pre),
+]
+pre += ' ' * 4
+config_boot_content += [
+    '{pre}disable'.format(pre=pre),
+]
+
+pre = pre[:-4]
+config_boot_content += [
+    '{pre}}}'.format(pre=pre),
     '{pre}unms {{'.format(pre=pre),
 ]
 pre += ' ' * 4
@@ -716,7 +727,7 @@ for username, user_attrs in sorted(node.metadata.get('users', {}).items(), key=l
         ]
         pre += ' ' * 4
         config_boot_content += [
-            '{pre}encrypted-password {hash}'.format(pre=pre, hash=user_attrs.get('password_hash', '*')),
+            '{pre}encrypted-password {hash}'.format(pre=pre, hash=user_attrs.get('password_hash', '"*"')),
             '{pre}plaintext-password ""'.format(pre=pre),
         ]
 
@@ -863,9 +874,9 @@ config_boot_content += [
     '',
     '/* Warning: Do not remove the following line. */',
     '/* === vyatta-config-version: "config-management@1:conntrack@1:cron@1:dhcp-relay@1:dhcp-server@4:firewall@5:'
-    'ipsec@5:nat@3:qos@1:quagga@2:system@4:ubnt-pptp@1:ubnt-udapi-server@1:ubnt-unms@1:ubnt-util@1:vrrp@1:webgui@1:'
-    'webproxy@1:zone-policy@1" === */',
-    '/* Release version: v1.10.1.5067582.180305.1832 */',
+    'ipsec@5:nat@3:qos@1:quagga@2:suspend@1:system@4:ubnt-pptp@1:ubnt-udapi-server@1:ubnt-unms@1:ubnt-util@1:vrrp@1:'
+    'webgui@1:webproxy@1:zone-policy@1" === */',
+    '/* Release version: v1.10.11.5274269.200221.1028 */',
 ]
 # print('\n'.join(config_boot_content))
 
