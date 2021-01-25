@@ -716,8 +716,12 @@ config_boot_content += [
 ]
 pre += ' ' * 4
 
+check_mk_user = 'root'
 for username, user_attrs in sorted(node.metadata.get('users', {}).items(), key=lambda x: x[0]):
     if not user_attrs.get('delete', False) and user_attrs.get('sudo', False):
+        if user_attrs.get('check_mk_agent', False):
+            check_mk_user = username
+
         config_boot_content += [
             '{pre}user {username} {{'.format(pre=pre, username=username),
         ]
@@ -890,3 +894,17 @@ files['/config/config.boot'] = {
         'file:/usr/bin/file',
     ]
 }
+
+check_mk_agent = node.metadata.get('check_mk', {}).get('check_mk_agent', None)
+if check_mk_agent:
+    files[check_mk_agent] = {
+        'source': 'check_mk_agent',
+        'content_type': 'text',
+        'mode': '0700',
+        'owner': check_mk_user,
+        'group': 'vyattacfg',
+        'needs': [
+            # we need file otherwise the bw logic will think it did not upload the correct file
+            'file:/usr/bin/file',
+        ]
+    }
