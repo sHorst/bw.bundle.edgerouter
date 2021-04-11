@@ -2,7 +2,7 @@ from ipaddress import ip_address, IPv4Address, ip_network
 from os.path import join
 from bundlewrap.utils import get_file_contents
 
-parameter = {
+openvpn_parameter = {
     'device-type': {'type': 'string', 'default': 'tap', 'direct': True},
     'mode': {'type': 'string', 'default': 'client', 'direct': True},
     'keepalive': {'type': 'string', 'default': None},
@@ -59,6 +59,33 @@ parameter = {
     'comp-lzo': {'type': 'string', 'default': None},
 }
 
+pptp_parameter = {
+    'default-route': {'type': 'string', 'default': 'none'},
+
+    'mtu': {'type': 'int', 'default': 1500},
+    'name-server': {'type': 'string', 'default': 'auto'},
+    'password': {'type': 'string', 'default': ''},
+
+    'require-mppe': {'type': 'bool', 'default': False},
+
+    'server-ip': {'type': 'string', 'default': ''},
+    'user-id': {'type': 'string', 'default': ''},
+    'firewall': {'type': 'firewall', 'default': None},
+}
+
+firewall_parameter = {
+    'all-ping': {'type': 'bool', 'default': True},
+    'broadcast-ping': {'type': 'bool', 'default': False},
+    'ipv6-receive-redirects': {'type': 'bool', 'default': False},
+    'ipv6-src-route': {'type': 'bool', 'default': False},
+    'ip-src-route': {'type': 'bool', 'default': False},
+    'log-martians': {'type': 'bool', 'default': True},
+    'receive-redirects': {'type': 'bool', 'default': False},
+    'send-redirects': {'type': 'bool', 'default': True},
+    'source-validation': {'type': 'bool', 'default': False},
+    'syn-cookies': {'type': 'bool', 'default': True},
+}
+
 
 def sort_param(x):
     if x[1].get('direct', False):
@@ -85,6 +112,15 @@ def sort_interfaces(x):
     int_number = int_number.zfill(3)
 
     return "{}__{}".format(int_type, int_number)
+
+
+def quote_if_needed(val):
+    if val == '':
+        return '""'
+    elif ' ' in val:
+        return '"{}"'.format(val)
+    else:
+        return val
 
 
 gateway = None
@@ -120,16 +156,81 @@ files = {
 
 pre = ''
 
-if node.metadata.get('edgerouter', {}).get('firewall', False):
+firewall_config = node.metadata.get('edgerouter', {}).get('firewall', {})
+if firewall_config.get('enabled', False):
     config_boot_content += ['firewall {']
     pre += ' ' * 4
-    for key, value in node.metadata['edgerouter']['firewall'].items():
+
+    for param_name, param_config in sorted(firewall_parameter.items(), key=sort_param):
+        value = firewall_config.get(param_name, param_config['default'])
+        param_display_name = param_config.get('param_name', param_name)
+        param_type = param_config['type']
+        group = param_config.get('group', None)
+
+        if value is not None:
+            config_lines = []
+            if param_type == 'string':
+                config_lines += ["{} {}".format(param_display_name, value), ]
+            elif param_type == 'int':
+                config_lines += ["{} {}".format(param_display_name, str(value)), ]
+            elif param_type == 'bool':
+                config_lines += ["{} {}".format(param_display_name, 'enable' if value else 'disable'), ]
+
+            if config_lines is []:
+                continue
+
+            for config_line in config_lines:
+                if config_line == '':
+                    continue
+
+                config_boot_content += [
+                    '{pre}{value}'.format(pre=pre, value=config_line)
+                ]
+    for chain, chain_config in firewall_config.get('chains', {}).items():
         config_boot_content += [
-            '{pre}{key} {value}'.format(
+            '{pre}name {name} {{'.format(pre=pre, name=chain),
+            '{pre}    default-action {action}'.format(pre=pre, action=chain_config.get('default-action', 'accept')),
+            '{pre}    description {description}'.format(
                 pre=pre,
-                key=key,
-                value='enable' if value else 'disable',
+                description=quote_if_needed(chain_config.get('description', ''))
             ),
+            ]
+        pre += ' ' * 4
+
+        for rule, rule_config in chain_config.get('rules', {}).items():
+            config_boot_content += [
+                '{pre}rule {name} {{'.format(pre=pre, name=rule),
+                '{pre}    action {action}'.format(pre=pre, action=rule_config.get('action', 'accept')),
+                '{pre}    description {description}'.format(
+                    pre=pre,
+                    description=quote_if_needed(rule_config.get('description', ''))
+                ),
+                '{pre}    log {log}'.format(pre=pre, log='enable' if rule_config.get('log', True) else 'disable'),
+                '{pre}    protocol {protocol}'.format(pre=pre, protocol=rule_config.get('protocol', 'all')),
+                '{pre}    state {{'.format(pre=pre),
+                '{pre}        established {val}'.format(
+                    pre=pre,
+                    val='enable' if 'established' in rule_config.get('states', []) else 'disable'
+                ),
+                '{pre}        invalid {val}'.format(
+                    pre=pre,
+                    val='enable' if 'invalid' in rule_config.get('states', []) else 'disable'
+                ),
+                '{pre}        new {val}'.format(
+                    pre=pre,
+                    val='enable' if 'new' in rule_config.get('states', []) else 'disable'
+                ),
+                '{pre}        related {val}'.format(
+                    pre=pre,
+                    val='enable' if 'related' in rule_config.get('states', []) else 'disable'
+                ),
+                '{pre}    }}'.format(pre=pre),
+                '{pre}}}'.format(pre=pre),
+            ]
+
+        pre = pre[:-4]
+        config_boot_content += [
+            '{pre}}}'.format(pre=pre),
         ]
 
     pre = pre[:-4]
@@ -292,7 +393,7 @@ for vpn_name, vpn_config in node.metadata.get('openvpn', {}).items():
         vpn_config['dh'] = '{}/dh2048.pem'.format(vpn_directory)
 
     last_group = None
-    for param_name, param_config in sorted(parameter.items(), key=sort_param):
+    for param_name, param_config in sorted(openvpn_parameter.items(), key=sort_param):
         value = vpn_config.get(param_name, param_config['default'])
         param_display_name = param_config.get('param_name', param_name)
         param_type = param_config['type']
@@ -443,6 +544,74 @@ for vpn_name, vpn_config in node.metadata.get('openvpn', {}).items():
         '{}}}'.format(pre)
     ]
 
+# pptp
+for pptp, vpn_config in node.metadata.get('pptp', {}).items():
+    config_boot_content += [
+        '{pre}pptp-client {dev} {{'.format(pre=pre, dev=vpn_config['dev']),
+    ]
+    pre += ' ' * 4
+
+    config_boot_content += [
+        '{pre}description {description}'.format(pre=pre, description=quote_if_needed(pptp)),
+    ]
+
+    for param_name, param_config in sorted(pptp_parameter.items(), key=sort_param):
+        value = vpn_config.get(param_name, param_config['default'])
+        param_display_name = param_config.get('param_name', param_name)
+        param_type = param_config['type']
+        group = param_config.get('group', None)
+
+        if value is not None:
+            config_lines = []
+            if param_type == 'string':
+                config_lines += ["{} {}".format(param_display_name, value), ]
+            elif param_type == 'int':
+                config_lines += ["{} {}".format(param_display_name, str(value)), ]
+            elif param_type == 'port':
+                if vpn_config.get('mode', 'client') == 'server':
+                    param_config['direct'] = False
+                    config_lines += ["port {}".format(str(value)), ]
+                else:
+                    param_config['direct'] = True
+                    config_lines += ["{} {}".format(param_display_name, str(value)), ]
+            elif param_type == 'bool':
+                if value:
+                    config_lines += ["{}".format(param_display_name), ]
+            elif param_type == 'firewall':
+                if value is not {}:
+                    config_lines += [
+                        'firewall {',
+                    ]
+
+                    for direction, name in value.items():
+                        if direction not in ['in', 'out', 'local']:
+                            continue
+                        config_lines += [
+                            '    {} {{'.format(direction),
+                            '        name {}'.format(name),
+                            '    }',
+                        ]
+
+                    config_lines += [
+                        '}',
+                    ]
+
+            if config_lines is []:
+                continue
+
+            for config_line in config_lines:
+                if config_line == '':
+                    continue
+
+                config_boot_content += [
+                    '{pre}{value}'.format(pre=pre, value=config_line)
+                ]
+
+    pre = pre[:-4]
+    config_boot_content += [
+        '{}}}'.format(pre)
+    ]
+
 for switch, switch_config in sorted(node.metadata.get('edgerouter', {}).get('switches', {}).items(),
                                     key=lambda x: int(x[0])
                                     ):
@@ -508,7 +677,7 @@ if node.metadata.get('port-forward', {}):
         to = rule_config.get('to', ['0.0.0.0', 0])
 
         config_boot_content += [
-            '{}description "{}"'.format(pre, rule_config.get('description', '')),
+            '{}description {}'.format(pre, quote_if_needed(rule_config.get('description', ''))),
             '{}forward-to {{'.format(pre,),
             '{}    address {}'.format(pre, to[0]),
             '{}    port {}'.format(pre, to[1]),
@@ -521,25 +690,6 @@ if node.metadata.get('port-forward', {}):
         config_boot_content += [
             '{pre}}}'.format(pre=pre),
         ]
-    #     rule 1 {
-    #         description ""
-    #         forward-to {
-    #             address 192.168.178.5
-    #             port 80
-    #         }
-    #         original-port 888
-    #         protocol tcp
-    #     }
-    #     rule 2 {
-    #         description ""
-    #         forward-to {
-    #             address 192.168.178.11
-    #             port 80
-    #         }
-    #         original-port 17588
-    #         protocol tcp
-    #     }
-
 
     config_boot_content += [
         '{}wan-interface {}'.format(pre, port_forward_config.get('wan-interface', '')),
@@ -550,6 +700,50 @@ if node.metadata.get('port-forward', {}):
         '{pre}}}'.format(pre=pre),
     ]
 
+# protocols
+protocols_content = []
+if node.metadata.get('routes', {}):
+    protocols_content += [
+        'static {',
+    ]
+
+    for route, route_config in sorted(node.metadata.get('routes', {}).items(), key=lambda x: x[0]):
+        if not route_config.get('static', False):
+            continue
+        protocols_content += [
+            '    route {} {{'.format(route),
+        ]
+
+        for hop, description in route_config.get('next-hop', {}).items():
+            protocols_content += [
+                '        next-hop {} {{'.format(hop),
+                '            description {}'.format(quote_if_needed(description)),
+                '        }',
+            ]
+        protocols_content += [
+            '    }',
+        ]
+
+    protocols_content += [
+        '}',
+    ]
+
+
+if protocols_content:
+    config_boot_content += [
+        '{pre}protocols {{'.format(pre=pre),
+    ]
+    pre += ' ' * 4
+
+    for content in protocols_content:
+        config_boot_content += [
+            '{pre}{content}'.format(pre=pre, content=content),
+        ]
+
+    pre = pre[:-4]
+    config_boot_content += [
+        '{pre}}}'.format(pre=pre),
+    ]
 # service
 config_boot_content += [
     '{pre}service {{'.format(pre=pre),
@@ -588,7 +782,10 @@ if node.metadata.get('routes', {}):
 
         if route_config.get('destination', False):
             config_boot_content += [
-                '{pre}description "{description}"'.format(pre=pre, description=route_config.get('description', '')),
+                '{pre}description {description}'.format(
+                    pre=pre,
+                    description=quote_if_needed(route_config.get('description', ''))
+                ),
                 '{pre}destination {{'.format(pre=pre),
                 '{pre}    address {destination_addr}'.format(pre=pre, destination_addr=route_config.get('destination', ['', 0])[0]),
                 '{pre}    port {destination_port}'.format(pre=pre, destination_port=route_config.get('destination', ['', 0])[1]),
@@ -600,7 +797,10 @@ if node.metadata.get('routes', {}):
             ]
         else:
             config_boot_content += [
-                '{pre}description "{description}"'.format(pre=pre, description=route_config.get('description', '')),
+                '{pre}description {description}'.format(
+                    pre=pre,
+                    description=quote_if_needed(route_config.get('description', ''))
+                ),
                 '{pre}log disable'.format(pre=pre),
                 '{pre}outbound-interface {interface}'.format(pre=pre, interface=route_config.get('out', '')),
                 '{pre}protocol {proto}'.format(pre=pre, proto=route_config.get('protocol', 'all')),
@@ -760,7 +960,7 @@ for username, user_attrs in sorted(node.metadata.get('users', {}).items(), key=l
         pre = pre[:-4]
         config_boot_content += [
             '{pre}}}'.format(pre=pre),
-            '{pre}full-name "{full_name}"'.format(pre=pre, full_name=user_attrs.get('full_name')),
+            '{pre}full-name {full_name}'.format(pre=pre, full_name=quote_if_needed(user_attrs.get('full_name'))),
             '{pre}level admin'.format(pre=pre),
         ]
 
@@ -886,7 +1086,7 @@ config_boot_content += [
 
 files['/config/config.boot'] = {
     'content': '\n'.join(config_boot_content) + '\n',
-    'mode': '0660',
+    'mode': '0664',
     'owner': 'root',
     'group': 'vyattacfg',
     'needs': [
