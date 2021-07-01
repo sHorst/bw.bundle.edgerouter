@@ -714,10 +714,24 @@ if node.metadata.get('routes', {}):
             '    route {} {{'.format(route),
         ]
 
-        for hop, description in route_config.get('next-hop', {}).items():
+        for hop, config in route_config.get('next-hop', {}).items():
+            if isinstance(config, str):
+                config = {
+                    'description': config,
+                }
+
             protocols_content += [
                 '        next-hop {} {{'.format(hop),
-                '            description {}'.format(quote_if_needed(description)),
+            ]
+            if config.get('description', False):
+                protocols_content += [
+                    '            description {}'.format(quote_if_needed(config.get('description'))),
+                ]
+            if config.get('distance', False):
+                protocols_content += [
+                    '            distance {}'.format(int(config['distance'])),
+                ]
+            protocols_content += [
                 '        }',
             ]
         protocols_content += [
@@ -749,6 +763,70 @@ config_boot_content += [
     '{pre}service {{'.format(pre=pre),
 ]
 pre += ' ' * 4
+
+if node.metadata.get('dhcp', {}).get('enabled', False):
+    dhcp_config = node.metadata['dhcp']
+
+    config_boot_content += [
+        '{pre}dhcp-server {{'.format(pre=pre),
+    ]
+    pre += ' ' * 4
+    config_boot_content += [
+        f'{pre}disabled false',
+        f'{pre}hostfile-update disable',
+    ]
+
+    for shared_network_name, shared_network in dhcp_config.get('shared_networks', {}).items():
+        config_boot_content += [
+            f'{pre}shared-network-name {shared_network_name} {{',
+        ]
+        pre += ' ' * 4
+
+        network = shared_network.get('network', '')
+        start = shared_network.get('start', '')
+        stop = shared_network.get('stop', '')
+        router = shared_network.get('router', '')
+        lease = shared_network.get('lease', 86400)
+        dns_servers = shared_network.get('dns-server', [])
+
+        config_boot_content += [
+            f'{pre}authoritative disable',
+            f'{pre}subnet {network} {{',
+        ]
+        pre += ' ' * 4
+        config_boot_content += [
+            f'{pre}default-router {router}',
+        ]
+        for server in dns_servers:
+            config_boot_content += [
+                f'{pre}dns-server {server}',
+            ]
+        config_boot_content += [
+            f'{pre}lease {lease}',
+            f'{pre}start {start} {{',
+            f'{pre}    stop {stop}',
+            f'{pre}}}',
+        ]
+
+        pre = pre[:-4]
+        config_boot_content += [
+            f'{pre}}}',
+        ]
+
+        pre = pre[:-4]
+        config_boot_content += [
+            f'{pre}}}',
+        ]
+
+    config_boot_content += [
+        f'{pre}static-arp disable',
+        f'{pre}use-dnsmasq disable',
+    ]
+    pre = pre[:-4]
+    config_boot_content += [
+        '{pre}}}'.format(pre=pre),
+    ]
+
 config_boot_content += [
     '{pre}gui {{'.format(pre=pre),
 ]
