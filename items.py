@@ -979,6 +979,17 @@ config_boot_content += [
     '{pre}system {{'.format(pre=pre),
 ]
 pre += ' ' * 4
+
+
+config_boot_content += [
+    f'{pre}analytics-handler {{',
+    f'{pre}    send-analytics-report false',
+    f'{pre}}}',
+    f'{pre}crash-handler {{',
+    f'{pre}    send-crash-report false',
+    f'{pre}}}',
+]
+
 if gateway is not None:
     config_boot_content += [
         '{pre}gateway-address {gw}'.format(pre=pre, gw=gateway),
@@ -1038,7 +1049,7 @@ for username, user_attrs in sorted(node.metadata.get('users', {}).items(), key=l
         pre = pre[:-4]
         config_boot_content += [
             '{pre}}}'.format(pre=pre),
-            '{pre}full-name {full_name}'.format(pre=pre, full_name=quote_if_needed(user_attrs.get('full_name'))),
+            '{pre}full-name {full_name}'.format(pre=pre, full_name=quote_if_needed(user_attrs.get('full_name', username))),
             '{pre}level admin'.format(pre=pre),
         ]
 
@@ -1156,15 +1167,15 @@ config_boot_content += [
     '',
     '/* Warning: Do not remove the following line. */',
     '/* === vyatta-config-version: "config-management@1:conntrack@1:cron@1:dhcp-relay@1:dhcp-server@4:firewall@5:'
-    'ipsec@5:nat@3:qos@1:quagga@2:suspend@1:system@4:ubnt-pptp@1:ubnt-udapi-server@1:ubnt-unms@1:ubnt-util@1:vrrp@1:'
-    'webgui@1:webproxy@1:zone-policy@1" === */',
-    '/* Release version: v1.10.11.5274269.200221.1028 */',
+    'ipsec@5:nat@3:qos@1:quagga@2:suspend@1:system@5:ubnt-l2tp@1:ubnt-pptp@1:ubnt-udapi-server@1:ubnt-unms@2:'
+    'ubnt-util@1:vrrp@1:vyatta-netflow@1:webgui@1:webproxy@1:zone-policy@1" === */',
+    '/* Release version: v2.0.9-hotfix.2.5402463.210511.1317 */',
 ]
 # print('\n'.join(config_boot_content))
 
 files['/config/config.boot'] = {
     'content': '\n'.join(config_boot_content) + '\n',
-    'mode': '0664',
+    'mode': '0660',
     'owner': 'root',
     'group': 'vyattacfg',
     'needs': [
