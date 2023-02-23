@@ -2,6 +2,8 @@ from ipaddress import ip_address, IPv4Address, ip_network
 from os.path import join
 from bundlewrap.utils import get_file_contents
 
+global node, repo
+
 openvpn_parameter = {
     'device-type': {'type': 'string', 'default': 'tap', 'direct': True},
     'mode': {'type': 'string', 'default': 'client', 'direct': True},
@@ -61,6 +63,7 @@ openvpn_parameter = {
 
 pptp_parameter = {
     'default-route': {'type': 'string', 'default': 'none'},
+    'description': {'type': 'string', 'default': ''},
 
     'mtu': {'type': 'int', 'default': 1500},
     'name-server': {'type': 'string', 'default': 'auto'},
@@ -84,6 +87,7 @@ firewall_parameter = {
     'send-redirects': {'type': 'bool', 'default': True},
     'source-validation': {'type': 'bool', 'default': False},
     'syn-cookies': {'type': 'bool', 'default': True},
+    'name': {'type': 'firewall_rules', 'default': []},
 }
 
 
@@ -92,6 +96,9 @@ def sort_param(x):
         sort_value = x[1].get('param_name', x[0])
     else:
         sort_value = 'openvpn-option "--{}'.format(x[1].get('param_name', x[0]))
+
+    if sort_value == 'openvpn-option "--ip-src-route':
+        sort_value = 'openvpn-option "--ipv7-src-route'
 
     if x[1].get('group', None) is not None:
         return "{}_{}".format(x[1]['group'], sort_value)
@@ -170,11 +177,58 @@ if firewall_config.get('enabled', False):
         if value is not None:
             config_lines = []
             if param_type == 'string':
-                config_lines += ["{} {}".format(param_display_name, value), ]
+                config_lines += ["{} {}".format(param_display_name, quote_if_needed(value)), ]
             elif param_type == 'int':
                 config_lines += ["{} {}".format(param_display_name, str(value)), ]
             elif param_type == 'bool':
                 config_lines += ["{} {}".format(param_display_name, 'enable' if value else 'disable'), ]
+            elif param_type == 'firewall_rules':
+                for chain, chain_config in firewall_config.get('chains', {}).items():
+                    config_boot_content += [
+                        '{pre}name {name} {{'.format(pre=pre, name=chain),
+                        '{pre}    default-action {action}'.format(pre=pre, action=chain_config.get('default-action', 'accept')),
+                        '{pre}    description {description}'.format(
+                            pre=pre,
+                            description=quote_if_needed(chain_config.get('description', ''))
+                        ),
+                    ]
+                    pre += ' ' * 4
+
+                    for rule, rule_config in chain_config.get('rules', {}).items():
+                        config_boot_content += [
+                            '{pre}rule {name} {{'.format(pre=pre, name=rule),
+                            '{pre}    action {action}'.format(pre=pre, action=rule_config.get('action', 'accept')),
+                            '{pre}    description {description}'.format(
+                                pre=pre,
+                                description=quote_if_needed(rule_config.get('description', ''))
+                            ),
+                            '{pre}    log {log}'.format(pre=pre, log='enable' if rule_config.get('log', True) else 'disable'),
+                            '{pre}    protocol {protocol}'.format(pre=pre, protocol=rule_config.get('protocol', 'all')),
+                            '{pre}    state {{'.format(pre=pre),
+                            '{pre}        established {val}'.format(
+                                pre=pre,
+                                val='enable' if 'established' in rule_config.get('states', []) else 'disable'
+                            ),
+                            '{pre}        invalid {val}'.format(
+                                pre=pre,
+                                val='enable' if 'invalid' in rule_config.get('states', []) else 'disable'
+                            ),
+                            '{pre}        new {val}'.format(
+                                pre=pre,
+                                val='enable' if 'new' in rule_config.get('states', []) else 'disable'
+                            ),
+                            '{pre}        related {val}'.format(
+                                pre=pre,
+                                val='enable' if 'related' in rule_config.get('states', []) else 'disable'
+                            ),
+                            '{pre}    }}'.format(pre=pre),
+                            '{pre}}}'.format(pre=pre),
+                        ]
+
+                    pre = pre[:-4]
+                    config_boot_content += [
+                        '{pre}}}'.format(pre=pre),
+                    ]
 
             if config_lines is []:
                 continue
@@ -186,52 +240,6 @@ if firewall_config.get('enabled', False):
                 config_boot_content += [
                     '{pre}{value}'.format(pre=pre, value=config_line)
                 ]
-    for chain, chain_config in firewall_config.get('chains', {}).items():
-        config_boot_content += [
-            '{pre}name {name} {{'.format(pre=pre, name=chain),
-            '{pre}    default-action {action}'.format(pre=pre, action=chain_config.get('default-action', 'accept')),
-            '{pre}    description {description}'.format(
-                pre=pre,
-                description=quote_if_needed(chain_config.get('description', ''))
-            ),
-            ]
-        pre += ' ' * 4
-
-        for rule, rule_config in chain_config.get('rules', {}).items():
-            config_boot_content += [
-                '{pre}rule {name} {{'.format(pre=pre, name=rule),
-                '{pre}    action {action}'.format(pre=pre, action=rule_config.get('action', 'accept')),
-                '{pre}    description {description}'.format(
-                    pre=pre,
-                    description=quote_if_needed(rule_config.get('description', ''))
-                ),
-                '{pre}    log {log}'.format(pre=pre, log='enable' if rule_config.get('log', True) else 'disable'),
-                '{pre}    protocol {protocol}'.format(pre=pre, protocol=rule_config.get('protocol', 'all')),
-                '{pre}    state {{'.format(pre=pre),
-                '{pre}        established {val}'.format(
-                    pre=pre,
-                    val='enable' if 'established' in rule_config.get('states', []) else 'disable'
-                ),
-                '{pre}        invalid {val}'.format(
-                    pre=pre,
-                    val='enable' if 'invalid' in rule_config.get('states', []) else 'disable'
-                ),
-                '{pre}        new {val}'.format(
-                    pre=pre,
-                    val='enable' if 'new' in rule_config.get('states', []) else 'disable'
-                ),
-                '{pre}        related {val}'.format(
-                    pre=pre,
-                    val='enable' if 'related' in rule_config.get('states', []) else 'disable'
-                ),
-                '{pre}    }}'.format(pre=pre),
-                '{pre}}}'.format(pre=pre),
-            ]
-
-        pre = pre[:-4]
-        config_boot_content += [
-            '{pre}}}'.format(pre=pre),
-        ]
 
     pre = pre[:-4]
     config_boot_content += [
@@ -551,9 +559,7 @@ for pptp, vpn_config in node.metadata.get('pptp', {}).items():
     ]
     pre += ' ' * 4
 
-    config_boot_content += [
-        '{pre}description {description}'.format(pre=pre, description=quote_if_needed(pptp)),
-    ]
+    vpn_config['description'] = pptp
 
     for param_name, param_config in sorted(pptp_parameter.items(), key=sort_param):
         value = vpn_config.get(param_name, param_config['default'])
@@ -564,7 +570,7 @@ for pptp, vpn_config in node.metadata.get('pptp', {}).items():
         if value is not None:
             config_lines = []
             if param_type == 'string':
-                config_lines += ["{} {}".format(param_display_name, value), ]
+                config_lines += ["{} {}".format(param_display_name, quote_if_needed(value)), ]
             elif param_type == 'int':
                 config_lines += ["{} {}".format(param_display_name, str(value)), ]
             elif param_type == 'port':
@@ -841,6 +847,25 @@ pre = pre[:-4]
 config_boot_content += [
     '{pre}}}'.format(pre=pre),
 ]
+
+# LLDP
+lldp_interfaces = [x for x, y in node.metadata.get('interfaces', {}).items() if y.get('lldp', False)]
+if lldp_interfaces:
+    config_boot_content += [
+        f'{pre}lldp {{',
+    ]
+    pre += ' ' * 4
+
+    for interface in lldp_interfaces:
+        config_boot_content += [
+            f'{pre}interface {interface} {{',
+            f'{pre}}}',
+        ]
+
+    pre = pre[:-4]
+    config_boot_content += [
+        f'{pre}}}',
+    ]
 
 # NAT
 if node.metadata.get('routes', {}):
