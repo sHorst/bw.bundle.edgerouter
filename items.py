@@ -298,10 +298,17 @@ for interface, interface_config in sorted(node.metadata.get('interfaces', {}).it
         ]
 
         if interface_config.get('has_poe', False):
+            if interface_config.get('poe', False) is True:
+                poe_output = 'pthru'
+            elif interface_config.get('poe', False) is False:
+                poe_output = 'off'
+            else:
+                poe_output = interface_config['poe']
+
             config_boot_content += [
-                '{}poe {{'.format(pre),
-                '{}    output {}'.format(pre, 'pthru' if interface_config.get('poe', False) else 'off'),
-                '{}}}'.format(pre),
+                f'{pre}poe {{',
+                f'{pre}    output {poe_output}',
+                f'{pre}}}',
             ]
 
         interface_options += [
@@ -636,11 +643,45 @@ for switch, switch_config in sorted(node.metadata.get('edgerouter', {}).get('swi
             ]
         pre += ' ' * 4
 
-        for interface in switch_config.get('interfaces', []):
-            config_boot_content += [
-                '{}interface {} {{'.format(pre, interface),
-                '{}}}'.format(pre)
-            ]
+        if isinstance(switch_config.get('interfaces', {}), list):
+            for interface in switch_config.get('interfaces', []):
+                config_boot_content += [
+                    f'{pre}interface {interface} {{',
+                    f'{pre}}}'
+                ]
+        else:
+            for interface, sw_interface_config in switch_config.get('interfaces', {}).items():
+                config_boot_content += [
+                    f'{pre}interface {interface} {{',
+                ]
+                pre += ' ' * 4
+
+                if switch_config.get('vlan_aware', False) and \
+                        (sw_interface_config.get('pvid', False) or sw_interface_config.get('vid', False)):
+                    config_boot_content += [
+                        f'{pre}vlan {{',
+                    ]
+                    pre += ' ' * 4
+
+                    if sw_interface_config.get('pvid', False):
+                        config_boot_content += [
+                            f'{pre}pvid ' + str(sw_interface_config['pvid']),
+                        ]
+
+                    if sw_interface_config.get('vid', False):
+                        config_boot_content += [
+                            f'{pre}vid ' + ','.join([str(x) for x in sw_interface_config['vid']]),
+                        ]
+
+                    pre = pre[:-4]
+                    config_boot_content += [
+                        f'{pre}}}'
+                    ]
+
+                pre = pre[:-4]
+                config_boot_content += [
+                    f'{pre}}}'
+                ]
 
         config_boot_content += [
             '{}vlan-aware {}'.format(pre, 'enable' if switch_config.get('vlan_aware', False) else 'disable'),
