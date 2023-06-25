@@ -1133,7 +1133,6 @@ for ns in node.metadata.get('nameservers', []):
     config_boot_content += [
         '{pre}name-server {ns}'.format(pre=pre, ns=ns),
     ]
-    break  # only one name server
 
 # ntp
 config_boot_content += [
@@ -1241,7 +1240,7 @@ config_boot_content += [
 
 files['/config/config.boot'] = {
     'content': '\n'.join(config_boot_content) + '\n',
-    'mode': '0660',
+    'mode': '0664',
     'owner': 'root',
     'group': 'vyattacfg',
     'needs': [
